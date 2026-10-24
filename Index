@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner Absensi MTs PSM Loceret</title>
+    <!-- Library html5-qrcode yang sudah terbukti jalan -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin: 0; padding: 20px; background: #f0f2f5; }
+        .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        #reader { width: 100%; border-radius: 8px; overflow: hidden; margin-bottom: 15px; }
+        .status-box { padding: 15px; border-radius: 8px; font-weight: bold; margin-top: 15px; white-space: pre-wrap; }
+        .info { background: #e7f3fe; color: #0c5460; border: 1px solid #b8daff; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Scanner Absensi</h2>
+    <div id="reader"></div>
+    <div id="status" class="status-box info">Mencari lokasi GPS...</div>
+</div>
+
+<script>
+    // GANTI DENGAN URL DEPLOYMENT APPS SCRIPT ANDA
+    const BACKEND_URL = "URL_WEB_APP_APPS_SCRIPT_ANDA_DI_SINI"; 
+    
+    let userLat = null;
+    let userLon = null;
+    let isProcessing = false;
+    let html5QrcodeScanner;
+
+    const statusDiv = document.getElementById('status');
+
+    // 1. Dapatkan Lokasi GPS
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                userLat = position.coords.latitude;
+                userLon = position.coords.longitude;
+                statusDiv.className = 'status-box info';
+                statusDiv.innerText = "GPS Ditemukan. Silakan scan QR.";
+                startScanner();
+            },
+            (error) => {
+                statusDiv.className = 'status-box error';
+                statusDiv.innerText = "Gagal mengambil GPS. Pastikan izin lokasi aktif.";
+            },
+            { enableHighAccuracy: true }
+        );
+    } else {
+        statusDiv.className = 'status-box error';
+        statusDiv.innerText = "Browser tidak mendukung GPS.";
+    }
+
+    // 2. Mulai Kamera
+    function startScanner() {
+        html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
+        html5QrcodeScanner.render(onScanSuccess);
+    }
+
+    // 3. Proses Scan dan Kirim ke Backend Baru
+    function onScanSuccess(decodedText) {
+        if (isProcessing || !userLat || !userLon) return;
+        
+        isProcessing = true;
+        statusDiv.className = 'status-box info';
+        statusDiv.innerText = "Memproses data... Mohon tunggu.";
+        
+        // Pause scanner sementara memproses
+        html5QrcodeScanner.pause();
+
+        fetch(BACKEND_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                qr: decodedText,
+                lat: userLat,
+                lon: userLon
+            }),
+            headers: {
+                'Content-Type': 'text/plain;charset=utf-8' // Hindari preflight CORS error di GAS
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            statusDiv.className = data.success ? 'status-box success' : 'status-box error';
+            statusDiv.innerText = data.message;
+        })
+        .catch(error => {
+            statusDiv.className = 'status-box error';
+            statusDiv.innerText = "Gagal terhubung ke server.";
+            console.error(error);
+        })
+        .finally(() => {
+            // Beri jeda 3 detik sebelum bisa scan lagi
+            setTimeout(() => {
+                isProcessing = false;
+                statusDiv.className = 'status-box info';
+                statusDiv.innerText = "Silakan scan QR berikutnya.";
+                html5QrcodeScanner.resume();
+            }, 3000);
+        });
+    }
+</script>
+
+</body>
+</html>
